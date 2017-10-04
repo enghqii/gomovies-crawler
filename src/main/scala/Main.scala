@@ -1,7 +1,10 @@
+import java.io.PrintWriter
+
 import io.circe._
 import model._
 import org.htmlcleaner._
 
+import sys.process._
 import scalaj.http._
 
 object Main {
@@ -102,13 +105,35 @@ object Main {
             .option(HttpOptions.followRedirects(true))
             .asString
 
-        val pattern = "\\s*_x\\s*=\\s*\'(.+)\'\\s*,\\s*_y\\s*=\'(.+)\'".r
+        val jsScript = response.body + "\n" + "console.log(_x);\n" + "console.log(_y);\n"
 
-        val opt = pattern.findFirstMatchIn(response.body) match {
-            case Some(m) => Some((m.group(1), m.group(2)))
-            case None => None
+        // Can't use the ScriptEngineManager due to its method bytecode limitation.
+
+        try {
+
+            // Create a temp file
+            val file: java.io.File = java.io.File.createTempFile(s"${movieID}_${episodeID}", ".tmp")
+
+            // Save result (java script code) to that temp file
+            val out: PrintWriter = new PrintWriter(file)
+            out.println(jsScript)
+            out.flush()
+            out.close()
+
+            // Invoke node.js
+            val res: String = "node " + file.getAbsolutePath !!
+            val arr: Array[String] = res.split("\n")
+
+            file.deleteOnExit()
+
+            if (arr.length >= 2)
+                Some(arr(0), arr(1))
+            else
+                None
         }
-        opt
+        catch {
+            case e: Exception => return None
+        }
     }
 
     /**
@@ -125,8 +150,6 @@ object Main {
         val response: HttpResponse[String] = Http(fileJsonURL)
             .option(HttpOptions.followRedirects(true))
             .asString
-
-        // println(response.body)
 
         val playList: Vector[Json] = io.circe.parser.parse(response.body)
             .getOrElse(Json.Null)
@@ -148,11 +171,13 @@ object Main {
                 new Source(fileURL, resolution, fileExt)
             })
 
+        // Video files
         val source: Option[Source] = sources.nonEmpty match {
             case true => Some(sources.reduce((s0: Source, s1: Source) => if (s0.resolution - s1.resolution >= 0) s0 else s1))
             case false => None
         }
 
+        // Subtitle files
         val track: Option[Track] = playList
             .flatMap(_.hcursor.downField("tracks").values)
             .flatten
@@ -182,11 +207,10 @@ object Main {
         findMovieID(args(0))
             // 2. Retrieve episode data in every server
             .map(retrieveEpisodeData).getOrElse(Array.empty)
-            // 2.5 Take the first server items
-            .groupBy(_.serverIndex)//.filter { case(k, v) => k == 6 }
+            .groupBy(_.serverIndex).filter { case(k, v) => k == 7 }
             .flatMap { case (k, v) => v }
             // 3. Retrieve x, y coordinates
-            .par
+            // .par
             .flatMap(epData => {
                 retrieveEpisodeCoords(epData.movieID, epData.episodeID).map(epData.SetCoord)
             })
@@ -195,7 +219,7 @@ object Main {
                 val Pair(src, trk) = retrieveFileURLs(epData.episodeID, epData.x, epData.y)
                 (epData, src, trk)
             })
-            .seq
+            // .seq
             // and, print
             .foreach(trp => {
                 println(trp._1.episodeName)
