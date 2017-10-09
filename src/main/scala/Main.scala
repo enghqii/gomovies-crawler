@@ -1,9 +1,11 @@
 import java.io.PrintWriter
+import java.net.URL
 
 import io.circe._
 import model._
 import org.htmlcleaner._
 
+import scala.util.matching.Regex
 import sys.process._
 import scalaj.http._
 
@@ -16,11 +18,11 @@ object Main {
       * @param url
       * @return movieID
       */
-    def findMovieID(url: String): Option[String] = {
+    def findMovieID(url: URL): Option[String] = {
 
-        val pattern = """https:\/\/gostream.is\/film\/.*\-(\d+)""".r
+        val pattern: Regex = """https:\/\/gostream.is\/film\/.*\-(\d+)""".r
 
-        pattern.findFirstMatchIn(url) match {
+        pattern.findFirstMatchIn(url.toString) match {
             case Some(m) => Some(m.group(1))
             case None => None
         }
@@ -126,6 +128,7 @@ object Main {
 
             file.deleteOnExit()
 
+            // fetch result
             if (arr.length >= 2)
                 Some(arr(0), arr(1))
             else
@@ -200,36 +203,40 @@ object Main {
 
         val usage = "arguments: url server_index"
 
+        // not enough args
         if (args.length < 2) {
             println(usage)
             return
         }
 
-        val url: String = args(0)
+        // argument validations
+        val url: URL = new URL(args(0))
         val serverIndex: Int = Util.toInt(args(1)).getOrElse(0)
 
         // 1. Find movie id from the URL
         findMovieID(url)
+
             // 2. Retrieve episode data in every server
             .map(retrieveEpisodeData).getOrElse(Array.empty)
             .groupBy(_.serverIndex).filter { case(k, v) => k == serverIndex }
             .flatMap { case (k, v) => v }
+
             // 3. Retrieve x, y coordinates
             // .par
-            .flatMap(epData => {
-                retrieveEpisodeCoords(epData.movieID, epData.episodeID).map(epData.SetCoord)
-            })
+            .flatMap(epData => retrieveEpisodeCoords(epData.movieID, epData.episodeID).map(epData.SetCoord))
+
             // 4. From x, y coords, Retrieve (best) file URLs
             .map(epData => {
                 val Pair(src, trk) = retrieveFileURLs(epData.episodeID, epData.x, epData.y)
                 (epData, src, trk)
             })
             // .seq
+
             // and, print
             .foreach(trp => {
                 println(trp._1.episodeName)
-                trp._2.map(_.fileURL).foreach(println)
-                trp._3.map(_.fileURL).foreach(println)
+                println(trp._2.map(_.fileURL).getOrElse(""))
+                println(trp._3.map(_.fileURL).getOrElse(""))
             })
     }
 }
