@@ -164,7 +164,7 @@ object Main {
 
                 val cursor = json.hcursor
 
-                val resolution = cursor.get[String]("label").getOrElse("0p").dropRight(1).toInt
+                val resolution = Util.toInt(cursor.get[String]("label").getOrElse("0p").dropRight(1)).getOrElse(0)
                 val fileExt = cursor.get[String]("type").getOrElse("")
                 val fileURL = cursor.get[String]("file").getOrElse("")
 
@@ -198,16 +198,21 @@ object Main {
 
     def main(args: Array[String]): Unit = {
 
-        if (args.length < 1) {
-            println("You must specify a URL")
+        val usage = "arguments: url server_index"
+
+        if (args.length < 2) {
+            println(usage)
             return
         }
 
+        val url: String = args(0)
+        val serverIndex: Int = Util.toInt(args(1)).getOrElse(0)
+
         // 1. Find movie id from the URL
-        findMovieID(args(0))
+        findMovieID(url)
             // 2. Retrieve episode data in every server
             .map(retrieveEpisodeData).getOrElse(Array.empty)
-            .groupBy(_.serverIndex).filter { case(k, v) => k == 7 }
+            .groupBy(_.serverIndex).filter { case(k, v) => k == serverIndex }
             .flatMap { case (k, v) => v }
             // 3. Retrieve x, y coordinates
             // .par
